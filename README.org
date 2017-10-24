@@ -27,14 +27,12 @@ You can override the default root directory by setting =eacl-project-root=,
 
 Here are the commands you can use.
 ** =M-x eacl-complete-line=
-It completes line. You could assign key binding =C-x C-l= to it.
+Complete the line. You could assign key binding =C-x C-l= to it.
 ** =M-x eacl-complete-statement=
-It completes statement. Statement could be multiple lines and is matched by pattern =eacl-statement-regex=.
-
-By default =statement= ending with ";"
+Complete the statement which ends with ";".
 ** =M-x eacl-complete-snippet=
-It completes snippets ending with "}".
+Complete the snippet ending with "}".
 ** =M-x eacl-complete-tag=
-It completes HTML tag ending with ">".
+Complete the HTML tag ending with ">".
 * Bug Report
 Check [[https://github.com/redguardtoo/eacl]].

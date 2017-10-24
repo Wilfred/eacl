@@ -38,14 +38,11 @@
 ;; `eacl-complete-line' complete line.  You could assign key binding
 ;; "C-x C-l" to this command.
 ;;
-;; `eacl-complete-statement' completes statement.  Statement could be
-;; multiple lines and is matched by pattern `eacl-statement-regex'.
-;; According to default value of `eacl-statement-regex'.
-;; Statement ends with ";"
+;; `eacl-complete-statement' completes statement which ends with ";".
 ;;
-;; `eacl-complete-snippet' completes snippets ending with "}"
+;; `eacl-complete-snippet' completes snippets which ends with "}".
 ;;
-;; `eacl-complete-tag' completes HTML tag ending with ">"
+;; `eacl-complete-tag' completes HTML tag which ends with ">".
 ;;
 ;; GNU Grep, Emacs 24.3 and counsel (https://github.com/abo-abo/swiper)
 ;; are required.
@@ -81,6 +78,9 @@
   "The file/directory used to locate project root."
   :type '(repeat sexp)
   :group 'eacl)
+
+(defvar eacl-keyword-start nil
+  "The start position of multi-line keyword.  Internal variable.")
 
 (defcustom eacl-grep-ignore-dirs
   '(".git"
@@ -146,6 +146,12 @@
       (match-string 1 cur-line)
     ""))
 
+(defun eacl-trim-left (s)
+  "Remove whitespace at the beginning of S."
+  (if (string-match "\\`[ \t\n\r]+" s)
+      (replace-match "" t t s)
+    s))
+
 (defun eacl-encode(s)
   "Encode S."
     ;; encode "{}[]"
@@ -156,6 +162,8 @@
     (setq s (replace-regexp-in-string "\\." "\\\\\." s))
     (setq s (replace-regexp-in-string "\\[" "\\\\\[" s))
     (setq s (replace-regexp-in-string "\\]" "\\\\\]" s))
+    (setq s (replace-regexp-in-string "\n" "\\\n" s))
+    (setq s (replace-regexp-in-string "\r" "\\\r" s))
     ;; perl-regex support non-ASCII characters
     ;; Turn on `-P` from `git grep' and `grep'
     ;; the_silver_searcher and ripgrep need no setup
@@ -217,7 +225,7 @@ If REGEX is not nil, complete statement."
          ;; Please note grep's "-z" will output null character at the end of each candidate
          (sep (if regex "\x0[0-9]+:" "[\r\n]+"))
          (collection (split-string (shell-command-to-string cmd) sep t "[ \t\r\n]+")))
-    ;; (message "cmd=%s collection length=%s sep=%s" cmd (length collection) sep)
+    (message "cmd=%s collection length=%s sep=%s" cmd (length collection) sep)
     (when collection
       (setq collection (delq nil (delete-dups collection)))
       (cond
@@ -244,21 +252,22 @@ The keyword to grep is the text from line beginning to current cursor."
     (eacl-complete-line-or-statement nil cur-line keyword)))
 
 ;;;###autoload
-(defun eacl-complete-statement ()
+(defun eacl-complete-statement (&optional keyword)
   "Complete statement which end with pattern `eacl-statement-regex'.
-The keyword to grep is the text from line beginning to current cursor."
+The KEYWORD to grep is the text from line beginning to current cursor if not provided."
   (interactive)
   (let* ((cur-line (eacl-current-line))
          (keyword (eacl-get-keyword cur-line)))
-    (eacl-complete-line-or-statement eacl-statement-regex cur-line keyword)))
+    (eacl-complete-line-or-statement "[^;]*;" cur-line keyword)))
 
 ;;;###autoload
 (defun eacl-complete-snippet ()
   "Complete snippet which ends with \"}\".
 The keyword to grep is the text from line beginning to current cursor."
   (interactive)
-  (let* ((eacl-statement-regex "[^}]*}"))
-    (eacl-complete-statement)))
+  (let* ((cur-line (eacl-current-line))
+         (keyword (eacl-get-keyword cur-line)))
+    (eacl-complete-line-or-statement "[^}]*}" cur-line keyword)))
 
 ;;;###autoload
 (defun eacl-complete-tag ()
@@ -266,9 +275,16 @@ The keyword to grep is the text from line beginning to current cursor."
 The keyword to grep is the text from line beginning to current cursor."
   (interactive)
   (let* ((cur-line (eacl-current-line))
-         (keyword (concat "<" (replace-regexp-in-string "^<" "" (eacl-get-keyword cur-line))))
-         (regex "[^>]*>"))
-    (eacl-complete-line-or-statement regex cur-line keyword)))
+         (keyword (eacl-get-keyword cur-line))
+         (start (line-beginning-position))
+         (continue t))
+    (while continue
+      (eacl-complete-line-or-statement "[^>]*>" cur-line keyword)
+      (cond
+       ((yes-or-no-p "Stop auto-completion?")
+        (setq continue nil))
+       (t
+        (setq keyword (eacl-encode (eacl-trim-left (buffer-substring-no-properties start (point))))))))))
 
 (provide 'eacl)
 ;;; eacl.el ends here
