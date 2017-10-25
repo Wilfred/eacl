@@ -139,13 +139,6 @@
   (buffer-substring-no-properties (line-beginning-position)
                                   (point)))
 
-;;;###autoload
-(defun eacl-leading-spaces (cur-line)
-  "Leading space at the begining of CUR-LINE."
-  (if (string-match "^\\([ \t]*\\)" cur-line)
-      (match-string 1 cur-line)
-    ""))
-
 (defun eacl-trim-left (s)
   "Remove whitespace at the beginning of S."
   (if (string-match "\\`[ \t\n\r]+" s)
@@ -154,22 +147,21 @@
 
 (defun eacl-encode(s)
   "Encode S."
-    ;; encode "{}[]"
-    (setq s (replace-regexp-in-string "\"" "\\\\\"" s))
-    (setq s (replace-regexp-in-string "\\?" "\\\\\?" s))
-    (setq s (replace-regexp-in-string "\\$" "\\\\x24" s))
-    (setq s (replace-regexp-in-string "\\*" "\\\\\*" s))
-    (setq s (replace-regexp-in-string "\\." "\\\\\." s))
-    (setq s (replace-regexp-in-string "\\[" "\\\\\[" s))
-    (setq s (replace-regexp-in-string "\\]" "\\\\\]" s))
-    (setq s (replace-regexp-in-string "\n" "\\\n" s))
-    (setq s (replace-regexp-in-string "\r" "\\\r" s))
-    ;; perl-regex support non-ASCII characters
-    ;; Turn on `-P` from `git grep' and `grep'
-    ;; the_silver_searcher and ripgrep need no setup
-    (setq s (replace-regexp-in-string "{" "\\\\{" s))
-    (setq s (replace-regexp-in-string "}" "\\\\}" s))
-    s)
+  (message "eacl-encode called")
+  ;; encode "{}[]"
+  (setq s (replace-regexp-in-string "\"" "\\\\\"" s))
+  (setq s (replace-regexp-in-string "\\?" "\\\\\?" s))
+  (setq s (replace-regexp-in-string "\\$" "\\\\x24" s))
+  (setq s (replace-regexp-in-string "\\*" "\\\\\*" s))
+  (setq s (replace-regexp-in-string "\\." "\\\\\." s))
+  (setq s (replace-regexp-in-string "\\[" "\\\\\[" s))
+  (setq s (replace-regexp-in-string "\\]" "\\\\\]" s))
+  (setq s (replace-regexp-in-string "\n" "[[:space:]]" s))
+  (setq s (replace-regexp-in-string "\r" "[[:space:]]" s))
+  ;; don't know how to pass "(" to shell, so a little noise here
+  (setq s (replace-regexp-in-string "\(" "." s))
+  (setq s (replace-regexp-in-string "\)" "." s))
+  s)
 
 (defun eacl-grep-exclude-opts ()
   "Create grep exclude options."
@@ -185,20 +177,20 @@
 ;;;###autoload
 (defun eacl-get-keyword (cur-line)
   "Get trimmed keyword from CUR-LINE."
+  (message "eacl-get-keyword called")
   (let* ((keyword (replace-regexp-in-string "^[ \t]*"
                                             ""
                                             cur-line)))
     (eacl-encode keyword)))
 
-(defun eacl-replace-current-line (leading-spaces content)
-  "Insert LEADING-SPACES and CONTENT."
-  (beginning-of-line)
-  (kill-line)
-  (insert (concat leading-spaces content))
-  (end-of-line))
+(defun eacl-replace-text (content start is-multiline)
+  "Insert CONTENT from START to current point if IS-MULTILINE is t."
+  (delete-region start (if is-multiline (point) (line-end-position)))
+  (insert content))
 
 (defun eacl-create-candidate-summary (s)
   "If S is too wide to fit into the screen, return pair summary and S."
+  (message "eacl-create-candidate-summary called")
   (let* ((w (frame-width))
          ;; display kill ring item in one line
          (key (replace-regexp-in-string "[ \t]*[\n\r]+[ \t]*" "\\\\n" s)))
@@ -209,8 +201,9 @@
         (setq key (concat (substring key 0 (- w 4)) "...")))
     (cons key s)))
 
-(defun eacl-complete-line-or-statement (regex cur-line keyword)
+(defun eacl-complete-line-or-statement (regex cur-line keyword start)
   "Complete line or statement according to REGEX.
+If REGEX is nil, we only complete current line.
 CUR-LINE and KEYWORD are also required.
 If REGEX is not nil, complete statement."
   (let* ((default-directory (or (eacl-get-project-root) default-directory))
@@ -221,17 +214,23 @@ If REGEX is not nil, complete statement."
                       (eacl-grep-exclude-opts)
                       (if regex (concat keyword regex)
                         keyword)))
-         (leading-spaces (eacl-leading-spaces cur-line))
          ;; Please note grep's "-z" will output null character at the end of each candidate
          (sep (if regex "\x0" "[\r\n]+"))
-         (collection (split-string (shell-command-to-string cmd) sep t "[ \t\r\n]+")))
-    (message "cmd=%s collection length=%s sep=%s" cmd (length collection) sep)
+         (collection (split-string (shell-command-to-string cmd) sep t "[ \t\r\n]+"))
+         (rlt t))
+    ;; (message "cmd=%s collection length=%s sep=%s" cmd (length collection) sep)
     (when collection
       (setq collection (delq nil (delete-dups collection)))
       (cond
        ((= 1 (length collection))
         ;; insert only candidate
-        (eacl-replace-current-line leading-spaces (car collection)))
+        (cond
+         ((string= (car collection) (buffer-substring-no-properties start (point)))
+          (message "%s===%s" (length (car collection)) (buffer-substring-no-properties start (point)))
+          (setq rlt nil))
+         (t
+          (message "%s===%s" (length (car collection)) (length (buffer-substring-no-properties start (point))))
+          (eacl-replace-text (car collection) start regex))))
        ((> (length collection) 1)
         ;; uniq
         (if regex
@@ -240,7 +239,9 @@ If REGEX is not nil, complete statement."
                   collection
                   :action (lambda (l)
                             (if (consp l) (setq l (cdr l)))
-                            (eacl-replace-current-line leading-spaces l))))))))
+                            (eacl-replace-text l start regex))))))
+    (unless collection (setq rlt nil))
+    rlt))
 
 ;;;###autoload
 (defun eacl-complete-line ()
@@ -248,8 +249,9 @@ If REGEX is not nil, complete statement."
 The keyword to grep is the text from line beginning to current cursor."
   (interactive)
   (let* ((cur-line (eacl-current-line))
+         (start (eacl-line-beginning-position))
          (keyword (eacl-get-keyword cur-line)))
-    (eacl-complete-line-or-statement nil cur-line keyword)))
+    (eacl-complete-line-or-statement nil cur-line keyword start)))
 
 ;;;###autoload
 (defun eacl-complete-statement (&optional keyword)
@@ -257,8 +259,9 @@ The keyword to grep is the text from line beginning to current cursor."
 The KEYWORD to grep is the text from line beginning to current cursor if not provided."
   (interactive)
   (let* ((cur-line (eacl-current-line))
+         (start (eacl-line-beginning-position))
          (keyword (eacl-get-keyword cur-line)))
-    (eacl-complete-line-or-statement "[^;]*;" cur-line keyword)))
+    (eacl-complete-line-or-statement "[^;]*;" cur-line keyword start)))
 
 ;;;###autoload
 (defun eacl-complete-snippet ()
@@ -266,8 +269,12 @@ The KEYWORD to grep is the text from line beginning to current cursor if not pro
 The keyword to grep is the text from line beginning to current cursor."
   (interactive)
   (let* ((cur-line (eacl-current-line))
+         (start (eacl-line-beginning-position))
          (keyword (eacl-get-keyword cur-line)))
-    (eacl-complete-line-or-statement "[^}]*}" cur-line keyword)))
+    (eacl-complete-line-or-statement "[^}]*}" cur-line keyword start)))
+
+(defun eacl-line-beginning-position ()
+  (save-excursion (back-to-indentation) (point)))
 
 ;;;###autoload
 (defun eacl-complete-tag ()
@@ -276,15 +283,17 @@ The keyword to grep is the text from line beginning to current cursor."
   (interactive)
   (let* ((cur-line (eacl-current-line))
          (keyword (eacl-get-keyword cur-line))
-         (start (line-beginning-position))
+         (start (eacl-line-beginning-position))
          (continue t))
     (while continue
-      (eacl-complete-line-or-statement "[^>]*>" cur-line keyword)
-      (cond
-       ((yes-or-no-p "Stop auto-completion?")
+      (unless (eacl-complete-line-or-statement "[^>]*>" cur-line keyword start)
+        (message "Auto-completion done!")
         (setq continue nil))
+      (cond
+       ((and continue (yes-or-no-p "Continue?"))
+        (setq keyword (eacl-encode (eacl-trim-left (buffer-substring-no-properties start (point))))))
        (t
-        (setq keyword (eacl-encode (eacl-trim-left (buffer-substring-no-properties start (point))))))))))
+        (setq continue nil))))))
 
 (provide 'eacl)
 ;;; eacl.el ends here
