@@ -214,7 +214,7 @@
 CUR-LINE and KEYWORD are also required.
 If REGEX is not nil, complete statement."
   (let* ((default-directory (or (eacl-get-project-root) default-directory))
-         (cmd-format-opts (if regex "%s -rsnhPzoI %s \"%s\" *"
+         (cmd-format-opts (if regex "%s -rshPzoI %s \"%s\" *"
                             "%s -rshEI %s \"%s\" *"))
          (cmd (format cmd-format-opts
                       eacl-grep-program
@@ -223,7 +223,7 @@ If REGEX is not nil, complete statement."
                         keyword)))
          (leading-spaces (eacl-leading-spaces cur-line))
          ;; Please note grep's "-z" will output null character at the end of each candidate
-         (sep (if regex "\x0[0-9]+:" "[\r\n]+"))
+         (sep (if regex "\x0" "[\r\n]+"))
          (collection (split-string (shell-command-to-string cmd) sep t "[ \t\r\n]+")))
     (message "cmd=%s collection length=%s sep=%s" cmd (length collection) sep)
     (when collection
